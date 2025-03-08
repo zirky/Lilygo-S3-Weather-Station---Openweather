@@ -86,7 +86,9 @@ Tento projekt představuje meteorologickou stanici, která zobrazuje aktuální 
 - Stisknutím tlačítka otáčejte obrazovku.
 - Jas displeje se automaticky upraví podle denní doby.
 
-- Vyžaduje registraci na OpenWeatherMap pro klíč API (k dispozici zdarma úroveň). Používá OpenWeatherMap API 3.0.
+---
+
+Vyžaduje registraci na OpenWeatherMap pro klíč API (k dispozici zdarma úroveň). Používá OpenWeatherMap API 3.0.
 
 ---
 
@@ -96,8 +98,6 @@ Tento projekt představuje meteorologickou stanici, která zobrazuje aktuální 
 - [WiFiManager Library](https://github.com/tzapu/WiFiManager)
 
 ---
-
-Tento popis poskytuje přehled o funkcích, hardwarových požadavcích a nastavení projektu. Můžete jej upravit podle potřeby a přidat další informace, jako jsou obrázky, schémata zapojení nebo odkazy na další zdroje.
 
 ![PXL_20250308_173348811 MP](https://github.com/user-attachments/assets/20c43a0d-edaa-4608-b4f6-3dbdd5331dfa)
 
