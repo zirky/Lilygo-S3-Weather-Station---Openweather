@@ -98,3 +98,6 @@ Tento projekt představuje meteorologickou stanici, která zobrazuje aktuální 
 ---
 
 Tento popis poskytuje přehled o funkcích, hardwarových požadavcích a nastavení projektu. Můžete jej upravit podle potřeby a přidat další informace, jako jsou obrázky, schémata zapojení nebo odkazy na další zdroje.
+
+![PXL_20250308_173348811 MP](https://github.com/user-attachments/assets/20c43a0d-edaa-4608-b4f6-3dbdd5331dfa)
+
