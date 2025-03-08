@@ -43,7 +43,9 @@ This project is a weather station that displays current weather conditions and a
 - Press the button to rotate the screen.
 - The display brightness will adjust automatically based on the time of day.
 
-- Requires registration on OpenWeatherMap for an API key (free tier available). Uses OpenWeatherMap API 3.0.
+---
+
+Requires registration on OpenWeatherMap for an API key (free tier available). Uses OpenWeatherMap API 3.0.
 
 ---
 
