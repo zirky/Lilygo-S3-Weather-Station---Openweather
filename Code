@@ -1,0 +1,362 @@
+#include <WiFiManager.h>  // Knihovna pro WiFiManager
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
+#include <TFT_eSPI.h>
+#include <WiFiUdp.h>
+#include <NTPClient.h>
+#include <Timezone.h>  // Knihovna pro správu časových pásem
+
+// Proměnná pro řízení aktualizace displeje
+unsigned long lastDisplayUpdate = 0;
+const unsigned long displayUpdateInterval = 60000;  // Interval aktualizace displeje (60 sekund)
+
+#define BRIGHTNESS_DAY_INDEX 4    // Index for 100% brightness in backlight array
+#define BRIGHTNESS_NIGHT_INDEX 0  // Index for lower brightness in backlight array
+#define ROTATE_BUTTON_PIN 0       // Definice pinu pro tlačítko otočení
+
+//screen + backlight
+const int pwmFreq = 10000;
+const int pwmResolution = 8;
+const int pwmLedChannelTFT = 0;
+const int backlight[5] = { 15, 30, 60, 120, 250 };
+
+TFT_eSPI tft;
+int screenRotation = 1;  // Počáteční otočení displeje
+
+const char* apiKey = "Your API";
+const char* city = "Your City";  // Zadejte název města
+
+// Proměnné pro ukládání zeměpisných souřadnic
+float lat = 0;
+float lon = 0;
+
+// Proměnné pro ukládání dat počasí
+float currentTemp = 0;
+String weatherDescription = "";
+float dayTemps[3] = { 0 };
+float nightTemps[3] = { 0 };
+String dates[3] = { "", "", "" };
+
+// Nastavení NTP
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP, "pool.ntp.org", 3600, 60000);  // Posun UTC +1 hodina, aktualizace každých 60 sekund
+
+// Definice časových pásem pro letní a zimní čas (CEST/CET)
+TimeChangeRule CEST = { "CEST", Last, Sun, Mar, 2, 120 };  // Letní čas (UTC +2)
+TimeChangeRule CET = { "CET", Last, Sun, Oct, 3, 60 };     // Zimní čas (UTC +1)
+Timezone CE(CEST, CET);
+
+// Proměnné pro řízení frekvence aktualizací
+unsigned long lastWeatherUpdate = 0;                 // Čas poslední aktualizace počasí
+const unsigned long weatherUpdateInterval = 300000;  // Interval aktualizace počasí (5 minut)
+
+
+// Překladový slovník pro popisy počasí
+String translateWeatherDescription(String description) {
+  if (description == "clear sky") return "Jasno";
+  if (description == "few clouds") return "Malo oblacno";
+  if (description == "scattered clouds") return "Rozptylene mraky";
+  if (description == "broken clouds") return "Oblacno";
+  if (description == "overcast clouds") return "Zatazeno";
+  if (description == "light rain") return "Slaby dest";
+  if (description == "moderate rain") return "Mirny dest";
+  if (description == "heavy intensity rain") return "Silny dest";
+  if (description == "very heavy rain") return "Velmi silny dest";
+  if (description == "extreme rain") return "Extremni dest";
+  if (description == "freezing rain") return "Mrznouci dest";
+  if (description == "light intensity shower rain") return "Slaby prehankovy dest";
+  if (description == "shower rain") return "Prehankovy dest";
+  if (description == "heavy intensity shower rain") return "Silny prehankovy dest";
+  if (description == "ragged shower rain") return "Nepravidelny prehankovy dest";
+  if (description == "thunderstorm with light rain") return "Bourka se slabym destem";
+  if (description == "thunderstorm with rain") return "Bourka s destem";
+  if (description == "thunderstorm with heavy rain") return "Bourka se silnym destem";
+  if (description == "light thunderstorm") return "Slaba bourka";
+  if (description == "thunderstorm") return "Bourka";
+  if (description == "heavy thunderstorm") return "Silna bourka";
+  if (description == "ragged thunderstorm") return "Nepravidelna bourka";
+  if (description == "thunderstorm with light drizzle") return "Bourka se slabym mrzolenim";
+  if (description == "thunderstorm with drizzle") return "Bourka s mrzolenim";
+  if (description == "thunderstorm with heavy drizzle") return "Bourka se silnym mrzolenim";
+  if (description == "light snow") return "Slaby snih";
+  if (description == "snow") return "Snih";
+  if (description == "heavy snow") return "Silny snih";
+  if (description == "sleet") return "Pliskanice";
+  if (description == "light shower sleet") return "Slaba prehankova pliskanice";
+  if (description == "shower sleet") return "Prehankova pliskanice";
+  if (description == "light rain and snow") return "Slaby dest se snehem";
+  if (description == "rain and snow") return "Dest se snehem";
+  if (description == "light shower snow") return "Slaba prehankova snehova prehankova";
+  if (description == "shower snow") return "Prehankova snehova prehankova";
+  if (description == "heavy shower snow") return "Silna prehankova snehova prehankova";
+  if (description == "mist") return "Mlha";
+  if (description == "smoke") return "Kour";
+  if (description == "haze") return "Opar";
+  if (description == "sand/dust whirls") return "Pisecne/prachove viry";
+  if (description == "fog") return "Mlha";
+  if (description == "sand") return "Pisek";
+  if (description == "dust") return "Prach";
+  if (description == "volcanic ash") return "Sopecny popel";
+  if (description == "squalls") return "Poryvy vetru";
+  if (description == "tornado") return "Tornado";
+  if (description == "light intensity drizzle") return "Slabe mrzoleni";
+  if (description == "drizzle") return "Mrzoleni";
+  if (description == "heavy intensity drizzle") return "Silne mrzoleni";
+  if (description == "light intensity drizzle rain") return "Slaby mrzolivy dest";
+  if (description == "drizzle rain") return "Mrzolivy dest";
+  if (description == "heavy intensity drizzle rain") return "Silny mrzolivy dest";
+  if (description == "shower rain and drizzle") return "Prehankovy dest s mrzolenim";
+  if (description == "heavy shower rain and drizzle") return "Silny prehankovy dest s mrzolenim";
+  if (description == "shower drizzle") return "Prehankove mrzoleni";
+  return description;  // Pokud není překlad k dispozici, vrátí původní popis
+}
+
+void toggleScreenRotation() {
+  screenRotation = (screenRotation == 1) ? 3 : 1;
+  tft.setRotation(screenRotation);
+  displayData();
+}
+
+// Funkce pro aktualizaci počasí
+void updateWeather() {
+  // Krok 1: Získání aktuálního počasí
+  ensureWiFiConnected();
+  HTTPClient httpCurrentWeather;
+  String currentWeatherUrl = "http://api.openweathermap.org/data/2.5/weather?lat=" + String(lat) + "&lon=" + String(lon) + "&appid=" + String(apiKey);
+  httpCurrentWeather.begin(currentWeatherUrl);
+  int currentWeatherCode = httpCurrentWeather.GET();
+
+  if (currentWeatherCode > 0) {
+    String currentWeatherPayload = httpCurrentWeather.getString();
+    DynamicJsonDocument currentWeatherDoc(1024);
+    deserializeJson(currentWeatherDoc, currentWeatherPayload);
+
+    // Získání aktuální teploty
+    currentTemp = currentWeatherDoc["main"]["temp"].as<float>() - 273.15;
+
+    // Získání textového popisu počasí
+    weatherDescription = translateWeatherDescription(currentWeatherDoc["weather"][0]["description"].as<String>());
+  }
+  httpCurrentWeather.end();
+
+  // Krok 2: Získání 3denní předpovědi pomocí One Call API 3.0
+  HTTPClient httpWeather;
+  String weatherUrl = "https://api.openweathermap.org/data/3.0/onecall?lat=" + String(lat) + "&lon=" + String(lon) + "&exclude=current,minutely,hourly,alerts&appid=" + String(apiKey);
+  httpWeather.begin(weatherUrl);
+  int weatherCode = httpWeather.GET();
+
+  if (weatherCode > 0) {
+    String weatherPayload = httpWeather.getString();
+    DynamicJsonDocument weatherDoc(8192);  // Velký buffer pro více dat
+    deserializeJson(weatherDoc, weatherPayload);
+
+    // Získání teplot a dat pro 3 dny
+    for (int i = 0; i < 3; i++) {
+      // Získání data z předpovědi
+      time_t forecastTime = weatherDoc["daily"][i]["dt"].as<time_t>();
+      time_t localForecastTime = CE.toLocal(forecastTime);  // Převod na lokální čas
+
+      // Formátování data do formátu D.M
+      char dateStr[10];
+      sprintf(dateStr, "%d.%d", day(localForecastTime), month(localForecastTime));
+      dates[i] = String(dateStr);
+
+      // Získání teplot
+      dayTemps[i] = weatherDoc["daily"][i]["temp"]["day"].as<float>() - 273.15;
+      nightTemps[i] = weatherDoc["daily"][i]["temp"]["night"].as<float>() - 273.15;
+    }
+  }
+  httpWeather.end();
+}
+
+// Funkce pro zobrazení všech dat na displeji
+void displayData() {
+  tft.fillScreen(TFT_BLACK);  // Vyčištění displeje
+
+  // Zobrazení aktuálního času
+  ensureWiFiConnected();
+  char timeStr[20];
+  sprintf(timeStr, "%02d:%02d", hour(timeClient.getEpochTime()), minute(timeClient.getEpochTime()));  // Formát HH:MM
+  tft.setCursor(5, 5);                                                                                // Pozice aktuálního času
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(5);  // Velikost písma 5
+  tft.println(timeStr);
+
+  // Zobrazení aktuální teploty
+  tft.setCursor(165, 10);             // Pozice aktuální teploty
+  tft.setTextColor(TFT_GREEN);        // Zelená barva
+  tft.setTextSize(4);                 // Velikost písma 4
+  tft.print(String(currentTemp, 1));  // Teplota
+  tft.setTextSize(2);                 // Velikost písma 2 pro "C"
+  tft.println(" C");
+
+  // Zobrazení textové předpovědi počasí
+  tft.setCursor(5, 140);       // Pozice pro textovou předpověď
+  tft.setTextColor(TFT_CYAN);  // Cyan barva
+  tft.setTextSize(3);          // Velikost písma 3
+  tft.println(weatherDescription);
+
+  // Zobrazení předpovědi počasí pro 3 dny
+  tft.setTextSize(3);  // Velikost písma 3
+  int yPos = 50;       // Počáteční pozice pro předpověď počasí
+
+  for (int i = 0; i < 3; i++) {
+    // Zobrazení data (oranžová barva)
+    tft.setCursor(5, yPos);     // Pozice pro datum
+    tft.setTextColor(TFT_ORANGE);  // Oranžová barva
+    tft.print(dates[i] + ": ");
+
+    // Zobrazení teplot (žlutá barva pro teploty, červená pro lomítko)
+    tft.setTextColor(TFT_YELLOW);  // Žlutá barva pro teploty
+    tft.print(String(dayTemps[i], 1));  // Denní teplota
+
+    tft.setTextColor(TFT_RED);  // Červená barva pro lomítko
+    tft.print("/");  // Lomítko
+
+    tft.setTextColor(TFT_YELLOW);  // Zpět na žlutou barvu pro noční teplotu
+    tft.print(String(nightTemps[i], 1));  // Noční teplota
+
+    tft.setTextSize(1);  // Velikost písma 1 pro "C"
+    tft.println(" C");
+    tft.setTextSize(3);  // Návrat k velikosti písma 3 pro další řádky
+    yPos += 30;          // Posun pro další den
+  }
+}
+
+void ensureWiFiConnected() {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("Ztraceno spojení, pokus o připojení...");
+    WiFi.disconnect();
+    WiFi.begin();
+    
+    int retries = 0;
+    while (WiFi.status() != WL_CONNECTED && retries < 10) {
+      delay(1000);
+      Serial.print(".");
+      retries++;
+    }
+
+    if (WiFi.status() == WL_CONNECTED) {
+      Serial.println("Připojeno!");
+    } else {
+      Serial.println("Nepodařilo se připojit k Wi-Fi. Restartuji ESP...");
+      delay(5000);
+      ESP.restart();
+    }
+  }
+}
+
+
+void displayLoadingScreen() {
+  tft.fillScreen(TFT_BLACK);
+  tft.setCursor(50, 60);
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(3);
+  tft.println("Nacitani...");
+}
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(ROTATE_BUTTON_PIN, INPUT_PULLUP);  // Nastavení tlačítka jako vstup s pull-up rezistorem
+  tft.init();
+  tft.setRotation(screenRotation);
+
+  // Zobrazíme načítací obrazovku ihned po spuštění
+  displayLoadingScreen();
+
+  // Připojení k Wi-Fi
+  WiFiManager wifiManager;
+  bool res = wifiManager.autoConnect("LilygoS3_AP");
+  if (!res) {
+    Serial.println("Failed to connect to Wi-Fi. Restarting...");
+    delay(3000);
+    ESP.restart();
+  } else {
+    Serial.println("Connected to Wi-Fi!");
+  }
+
+  // Inicializace NTP klienta
+  timeClient.begin();
+  timeClient.update();
+
+  // Získání souřadnic města
+  HTTPClient httpGeo;
+  String geoUrl = "http://api.openweathermap.org/geo/1.0/direct?q=" + String(city) + "&limit=1&appid=" + String(apiKey);
+  httpGeo.begin(geoUrl);
+  int geoCode = httpGeo.GET();
+  if (geoCode > 0) {
+    String geoPayload = httpGeo.getString();
+    DynamicJsonDocument geoDoc(1024);
+    deserializeJson(geoDoc, geoPayload);
+
+    lat = geoDoc[0]["lat"];
+    lon = geoDoc[0]["lon"];
+    Serial.println("Coordinates obtained: " + String(lat, 6) + ", " + String(lon, 6));
+
+    // PRVNÍ AKTUALIZACE POČASÍ OKAMŽITĚ
+    updateWeather();
+  } else {
+    Serial.println("Failed to get coordinates for the city.");
+  }
+  httpGeo.end();
+
+  // PRVNÍ VYKRESLENÍ DAT PO NAČTENÍ
+  displayData();
+
+////set brightness
+#if ESP_ARDUINO_VERSION < ESP_ARDUINO_VERSION_VAL(3, 0, 0)
+  ledcSetup(pwmLedChannelTFT, pwmFreq, pwmResolution);
+  ledcAttachPin(TFT_BL, pwmLedChannelTFT);
+#else
+  ledcAttach(TFT_BL, pwmFreq, pwmResolution);
+#endif
+
+  updateBrightness();
+}
+
+void updateBrightness() {
+  int currentHour = timeClient.getHours();
+  int brightnessLevel;
+
+  if (currentHour >= 6 && currentHour < 20) {
+    brightnessLevel = backlight[BRIGHTNESS_DAY_INDEX];  // 100% brightness
+  } else {
+    brightnessLevel = backlight[BRIGHTNESS_NIGHT_INDEX];  // Lower brightness
+  }
+
+#if ESP_ARDUINO_VERSION < ESP_ARDUINO_VERSION_VAL(3, 0, 0)
+  ledcWrite(pwmLedChannelTFT, brightnessLevel);
+#else
+  ledcWrite(TFT_BL, brightnessLevel);
+#endif
+}
+
+void loop() {
+  ensureWiFiConnected();  // Kontrola připojení při každém průchodu loop()
+
+  timeClient.update();
+  unsigned long currentMillis = millis();
+
+  // Pokud je čas na aktualizaci displeje
+  if (currentMillis - lastDisplayUpdate >= displayUpdateInterval) {
+    lastDisplayUpdate = currentMillis;
+    displayData();
+  }
+
+  // Pokud je čas na aktualizaci počasí
+  if (currentMillis - lastWeatherUpdate >= weatherUpdateInterval) {
+    lastWeatherUpdate = currentMillis;
+    updateWeather();
+  }
+
+  updateBrightness();
+
+  // Kontrola stisku tlačítka
+  if (digitalRead(ROTATE_BUTTON_PIN) == LOW) {
+    delay(200);  // Debounce delay
+    toggleScreenRotation();
+    while (digitalRead(ROTATE_BUTTON_PIN) == LOW)
+      ;  // Počkej, dokud tlačítko není uvolněné
+    delay(200);
+  }
+}
