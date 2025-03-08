@@ -86,6 +86,8 @@ Tento projekt představuje meteorologickou stanici, která zobrazuje aktuální 
 - Stisknutím tlačítka otáčejte obrazovku.
 - Jas displeje se automaticky upraví podle denní doby.
 
+- Vyžaduje registraci na OpenWeatherMap pro klíč API (k dispozici zdarma úroveň). Používá OpenWeatherMap API 3.0.
+
 ---
 
 ### Odkazy
