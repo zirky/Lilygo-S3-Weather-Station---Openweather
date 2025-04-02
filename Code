@@ -23,8 +23,8 @@ const int backlight[5] = {15, 30, 60, 120, 250};
 TFT_eSPI tft;
 int screenRotation = 1;
 
-const char* apiKey = "8c73d256692e3d06d249dcc603431463";
-const char* city = "Bohumín";
+const char* apiKey = "Your API";
+const char* city = "Your City";
 
 // Proměnné pro data
 float lat = 0;
