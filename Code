@@ -1,55 +1,51 @@
-#include <WiFiManager.h>  // Knihovna pro WiFiManager
+#include <WiFiManager.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <TFT_eSPI.h>
 #include <WiFiUdp.h>
 #include <NTPClient.h>
-#include <Timezone.h>  // Knihovna pro správu časových pásem
+#include <Timezone.h>
 
-// Proměnná pro řízení aktualizace displeje
+// Proměnné pro řízení aktualizace
 unsigned long lastDisplayUpdate = 0;
-const unsigned long displayUpdateInterval = 60000;  // Interval aktualizace displeje (60 sekund)
+const unsigned long displayUpdateInterval = 60000;
 
-#define BRIGHTNESS_DAY_INDEX 4    // Index for 100% brightness in backlight array
-#define BRIGHTNESS_NIGHT_INDEX 0  // Index for lower brightness in backlight array
-#define ROTATE_BUTTON_PIN 0       // Definice pinu pro tlačítko otočení
+#define BRIGHTNESS_DAY_INDEX 4
+#define BRIGHTNESS_NIGHT_INDEX 0
+#define ROTATE_BUTTON_PIN 0
 
-//screen + backlight
+// Nastavení displeje
 const int pwmFreq = 10000;
 const int pwmResolution = 8;
 const int pwmLedChannelTFT = 0;
-const int backlight[5] = { 15, 30, 60, 120, 250 };
+const int backlight[5] = {15, 30, 60, 120, 250};
 
 TFT_eSPI tft;
-int screenRotation = 1;  // Počáteční otočení displeje
+int screenRotation = 1;
 
-const char* apiKey = "Your API";
-const char* city = "Your City";  // Zadejte název města
+const char* apiKey = "8c73d256692e3d06d249dcc603431463";
+const char* city = "Bohumín";
 
-// Proměnné pro ukládání zeměpisných souřadnic
+// Proměnné pro data
 float lat = 0;
 float lon = 0;
-
-// Proměnné pro ukládání dat počasí
 float currentTemp = 0;
 String weatherDescription = "";
-float dayTemps[3] = { 0 };
-float nightTemps[3] = { 0 };
-String dates[3] = { "", "", "" };
+float dayTemps[3] = {0};
+float nightTemps[3] = {0};
+String dates[3] = {"", "", ""};
 
-// Nastavení NTP
+// Nastavení času
 WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP, "pool.ntp.org", 3600, 60000);  // Posun UTC +1 hodina, aktualizace každých 60 sekund
+NTPClient timeClient(ntpUDP, "pool.ntp.org", 0, 60000);
 
-// Definice časových pásem pro letní a zimní čas (CEST/CET)
-TimeChangeRule CEST = { "CEST", Last, Sun, Mar, 2, 120 };  // Letní čas (UTC +2)
-TimeChangeRule CET = { "CET", Last, Sun, Oct, 3, 60 };     // Zimní čas (UTC +1)
+// Definice časových pásem
+TimeChangeRule CEST = {"CEST", Last, Sun, Mar, 2, 120};
+TimeChangeRule CET = {"CET", Last, Sun, Oct, 3, 60};
 Timezone CE(CEST, CET);
 
-// Proměnné pro řízení frekvence aktualizací
-unsigned long lastWeatherUpdate = 0;                 // Čas poslední aktualizace počasí
-const unsigned long weatherUpdateInterval = 300000;  // Interval aktualizace počasí (5 minut)
-
+unsigned long lastWeatherUpdate = 0;
+const unsigned long weatherUpdateInterval = 300000;
 
 // Překladový slovník pro popisy počasí
 String translateWeatherDescription(String description) {
@@ -117,9 +113,7 @@ void toggleScreenRotation() {
   displayData();
 }
 
-// Funkce pro aktualizaci počasí
 void updateWeather() {
-  // Krok 1: Získání aktuálního počasí
   ensureWiFiConnected();
   HTTPClient httpCurrentWeather;
   String currentWeatherUrl = "http://api.openweathermap.org/data/2.5/weather?lat=" + String(lat) + "&lon=" + String(lon) + "&appid=" + String(apiKey);
@@ -130,16 +124,11 @@ void updateWeather() {
     String currentWeatherPayload = httpCurrentWeather.getString();
     DynamicJsonDocument currentWeatherDoc(1024);
     deserializeJson(currentWeatherDoc, currentWeatherPayload);
-
-    // Získání aktuální teploty
     currentTemp = currentWeatherDoc["main"]["temp"].as<float>() - 273.15;
-
-    // Získání textového popisu počasí
     weatherDescription = translateWeatherDescription(currentWeatherDoc["weather"][0]["description"].as<String>());
   }
   httpCurrentWeather.end();
 
-  // Krok 2: Získání 3denní předpovědi pomocí One Call API 3.0
   HTTPClient httpWeather;
   String weatherUrl = "https://api.openweathermap.org/data/3.0/onecall?lat=" + String(lat) + "&lon=" + String(lon) + "&exclude=current,minutely,hourly,alerts&appid=" + String(apiKey);
   httpWeather.begin(weatherUrl);
@@ -147,21 +136,15 @@ void updateWeather() {
 
   if (weatherCode > 0) {
     String weatherPayload = httpWeather.getString();
-    DynamicJsonDocument weatherDoc(8192);  // Velký buffer pro více dat
+    DynamicJsonDocument weatherDoc(8192);
     deserializeJson(weatherDoc, weatherPayload);
 
-    // Získání teplot a dat pro 3 dny
     for (int i = 0; i < 3; i++) {
-      // Získání data z předpovědi
       time_t forecastTime = weatherDoc["daily"][i]["dt"].as<time_t>();
-      time_t localForecastTime = CE.toLocal(forecastTime);  // Převod na lokální čas
-
-      // Formátování data do formátu D.M
+      time_t localForecastTime = CE.toLocal(forecastTime);
       char dateStr[10];
       sprintf(dateStr, "%d.%d", day(localForecastTime), month(localForecastTime));
       dates[i] = String(dateStr);
-
-      // Získání teplot
       dayTemps[i] = weatherDoc["daily"][i]["temp"]["day"].as<float>() - 273.15;
       nightTemps[i] = weatherDoc["daily"][i]["temp"]["night"].as<float>() - 273.15;
     }
@@ -169,63 +152,9 @@ void updateWeather() {
   httpWeather.end();
 }
 
-// Funkce pro zobrazení všech dat na displeji
-void displayData() {
-  tft.fillScreen(TFT_BLACK);  // Vyčištění displeje
-
-  // Zobrazení aktuálního času
-  ensureWiFiConnected();
-  char timeStr[20];
-  sprintf(timeStr, "%02d:%02d", hour(timeClient.getEpochTime()), minute(timeClient.getEpochTime()));  // Formát HH:MM
-  tft.setCursor(5, 5);                                                                                // Pozice aktuálního času
-  tft.setTextColor(TFT_WHITE);
-  tft.setTextSize(5);  // Velikost písma 5
-  tft.println(timeStr);
-
-  // Zobrazení aktuální teploty
-  tft.setCursor(165, 10);             // Pozice aktuální teploty
-  tft.setTextColor(TFT_GREEN);        // Zelená barva
-  tft.setTextSize(4);                 // Velikost písma 4
-  tft.print(String(currentTemp, 1));  // Teplota
-  tft.setTextSize(2);                 // Velikost písma 2 pro "C"
-  tft.println(" C");
-
-  // Zobrazení textové předpovědi počasí
-  tft.setCursor(5, 140);       // Pozice pro textovou předpověď
-  tft.setTextColor(TFT_CYAN);  // Cyan barva
-  tft.setTextSize(3);          // Velikost písma 3
-  tft.println(weatherDescription);
-
-  // Zobrazení předpovědi počasí pro 3 dny
-  tft.setTextSize(3);  // Velikost písma 3
-  int yPos = 50;       // Počáteční pozice pro předpověď počasí
-
-  for (int i = 0; i < 3; i++) {
-    // Zobrazení data (oranžová barva)
-    tft.setCursor(5, yPos);     // Pozice pro datum
-    tft.setTextColor(TFT_ORANGE);  // Oranžová barva
-    tft.print(dates[i] + ": ");
-
-    // Zobrazení teplot (žlutá barva pro teploty, červená pro lomítko)
-    tft.setTextColor(TFT_YELLOW);  // Žlutá barva pro teploty
-    tft.print(String(dayTemps[i], 1));  // Denní teplota
-
-    tft.setTextColor(TFT_RED);  // Červená barva pro lomítko
-    tft.print("/");  // Lomítko
-
-    tft.setTextColor(TFT_YELLOW);  // Zpět na žlutou barvu pro noční teplotu
-    tft.print(String(nightTemps[i], 1));  // Noční teplota
-
-    tft.setTextSize(1);  // Velikost písma 1 pro "C"
-    tft.println(" C");
-    tft.setTextSize(3);  // Návrat k velikosti písma 3 pro další řádky
-    yPos += 30;          // Posun pro další den
-  }
-}
-
 void ensureWiFiConnected() {
   if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("Ztraceno spojení, pokus o připojení...");
+    Serial.println("Reconnecting to WiFi...");
     WiFi.disconnect();
     WiFi.begin();
     
@@ -236,114 +165,143 @@ void ensureWiFiConnected() {
       retries++;
     }
 
-    if (WiFi.status() == WL_CONNECTED) {
-      Serial.println("Připojeno!");
-    } else {
-      Serial.println("Nepodařilo se připojit k Wi-Fi. Restartuji ESP...");
+    if (WiFi.status() != WL_CONNECTED) {
+      Serial.println("WiFi connection failed. Restarting...");
       delay(5000);
       ESP.restart();
     }
   }
 }
 
-
 void displayLoadingScreen() {
   tft.fillScreen(TFT_BLACK);
   tft.setCursor(50, 60);
   tft.setTextColor(TFT_WHITE);
   tft.setTextSize(3);
-  tft.println("Nacitani...");
+  tft.println("Loading...");
+}
+
+void updateBrightness() {
+  int currentHour = hour(CE.toLocal(timeClient.getEpochTime()));
+  int brightnessLevel;
+
+  if (currentHour >= 6 && currentHour < 20) {
+    brightnessLevel = backlight[BRIGHTNESS_DAY_INDEX];
+  } else {
+    brightnessLevel = backlight[BRIGHTNESS_NIGHT_INDEX];
+  }
+
+  #if ESP_ARDUINO_VERSION < ESP_ARDUINO_VERSION_VAL(3, 0, 0)
+    ledcWrite(pwmLedChannelTFT, brightnessLevel);
+  #else
+    ledcWrite(TFT_BL, brightnessLevel);
+  #endif
+}
+
+void displayData() {
+  tft.fillScreen(TFT_BLACK);
+  ensureWiFiConnected();
+  
+  time_t localTime = CE.toLocal(timeClient.getEpochTime());
+  char timeStr[20];
+  sprintf(timeStr, "%02d:%02d", hour(localTime), minute(localTime));
+  
+  tft.setCursor(5, 5);
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(5);
+  tft.println(timeStr);
+
+  tft.setCursor(165, 10);
+  tft.setTextColor(TFT_GREEN);
+  tft.setTextSize(4);
+  tft.print(String(currentTemp, 1));
+  tft.setTextSize(2);
+  tft.println(" C");
+
+  tft.setCursor(5, 140);
+  tft.setTextColor(TFT_CYAN);
+  tft.setTextSize(3);
+  tft.println(weatherDescription);
+
+  tft.setTextSize(3);
+  int yPos = 50;
+
+  for (int i = 0; i < 3; i++) {
+    tft.setCursor(5, yPos);
+    tft.setTextColor(TFT_ORANGE);
+    tft.print(dates[i] + ": ");
+
+    tft.setTextColor(TFT_YELLOW);
+    tft.print(String(dayTemps[i], 1));
+
+    tft.setTextColor(TFT_RED);
+    tft.print("/");
+
+    tft.setTextColor(TFT_YELLOW);
+    tft.print(String(nightTemps[i], 1));
+
+    tft.setTextSize(1);
+    tft.println(" C");
+    tft.setTextSize(3);
+    yPos += 30;
+  }
 }
 
 void setup() {
   Serial.begin(115200);
-  pinMode(ROTATE_BUTTON_PIN, INPUT_PULLUP);  // Nastavení tlačítka jako vstup s pull-up rezistorem
+  pinMode(ROTATE_BUTTON_PIN, INPUT_PULLUP);
   tft.init();
   tft.setRotation(screenRotation);
 
-  // Zobrazíme načítací obrazovku ihned po spuštění
   displayLoadingScreen();
 
-  // Připojení k Wi-Fi
   WiFiManager wifiManager;
-  bool res = wifiManager.autoConnect("LilygoS3_AP");
-  if (!res) {
-    Serial.println("Failed to connect to Wi-Fi. Restarting...");
+  if (!wifiManager.autoConnect("LilygoS3_AP")) {
+    Serial.println("Failed to connect. Restarting...");
     delay(3000);
     ESP.restart();
-  } else {
-    Serial.println("Connected to Wi-Fi!");
   }
 
-  // Inicializace NTP klienta
   timeClient.begin();
   timeClient.update();
 
-  // Získání souřadnic města
   HTTPClient httpGeo;
   String geoUrl = "http://api.openweathermap.org/geo/1.0/direct?q=" + String(city) + "&limit=1&appid=" + String(apiKey);
   httpGeo.begin(geoUrl);
-  int geoCode = httpGeo.GET();
-  if (geoCode > 0) {
+  
+  if (httpGeo.GET() > 0) {
     String geoPayload = httpGeo.getString();
     DynamicJsonDocument geoDoc(1024);
     deserializeJson(geoDoc, geoPayload);
-
     lat = geoDoc[0]["lat"];
     lon = geoDoc[0]["lon"];
-    Serial.println("Coordinates obtained: " + String(lat, 6) + ", " + String(lon, 6));
-
-    // PRVNÍ AKTUALIZACE POČASÍ OKAMŽITĚ
     updateWeather();
-  } else {
-    Serial.println("Failed to get coordinates for the city.");
   }
   httpGeo.end();
 
-  // PRVNÍ VYKRESLENÍ DAT PO NAČTENÍ
   displayData();
 
-////set brightness
-#if ESP_ARDUINO_VERSION < ESP_ARDUINO_VERSION_VAL(3, 0, 0)
-  ledcSetup(pwmLedChannelTFT, pwmFreq, pwmResolution);
-  ledcAttachPin(TFT_BL, pwmLedChannelTFT);
-#else
-  ledcAttach(TFT_BL, pwmFreq, pwmResolution);
-#endif
+  #if ESP_ARDUINO_VERSION < ESP_ARDUINO_VERSION_VAL(3, 0, 0)
+    ledcSetup(pwmLedChannelTFT, pwmFreq, pwmResolution);
+    ledcAttachPin(TFT_BL, pwmLedChannelTFT);
+  #else
+    ledcAttach(TFT_BL, pwmFreq, pwmResolution);
+  #endif
 
   updateBrightness();
 }
 
-void updateBrightness() {
-  int currentHour = timeClient.getHours();
-  int brightnessLevel;
-
-  if (currentHour >= 6 && currentHour < 20) {
-    brightnessLevel = backlight[BRIGHTNESS_DAY_INDEX];  // 100% brightness
-  } else {
-    brightnessLevel = backlight[BRIGHTNESS_NIGHT_INDEX];  // Lower brightness
-  }
-
-#if ESP_ARDUINO_VERSION < ESP_ARDUINO_VERSION_VAL(3, 0, 0)
-  ledcWrite(pwmLedChannelTFT, brightnessLevel);
-#else
-  ledcWrite(TFT_BL, brightnessLevel);
-#endif
-}
-
 void loop() {
-  ensureWiFiConnected();  // Kontrola připojení při každém průchodu loop()
-
+  ensureWiFiConnected();
   timeClient.update();
+  
   unsigned long currentMillis = millis();
 
-  // Pokud je čas na aktualizaci displeje
   if (currentMillis - lastDisplayUpdate >= displayUpdateInterval) {
     lastDisplayUpdate = currentMillis;
     displayData();
   }
 
-  // Pokud je čas na aktualizaci počasí
   if (currentMillis - lastWeatherUpdate >= weatherUpdateInterval) {
     lastWeatherUpdate = currentMillis;
     updateWeather();
@@ -351,12 +309,10 @@ void loop() {
 
   updateBrightness();
 
-  // Kontrola stisku tlačítka
   if (digitalRead(ROTATE_BUTTON_PIN) == LOW) {
-    delay(200);  // Debounce delay
+    delay(200);
     toggleScreenRotation();
-    while (digitalRead(ROTATE_BUTTON_PIN) == LOW)
-      ;  // Počkej, dokud tlačítko není uvolněné
+    while (digitalRead(ROTATE_BUTTON_PIN) == LOW);
     delay(200);
   }
 }
